@@ -107,6 +107,4 @@ def mock_metadata():
         sampling_rate=26000000,
         bit_depth=16,
         group="snzfqW",
-        temperature_c=37.543861,
-        rssi_db=-76.5,
     )

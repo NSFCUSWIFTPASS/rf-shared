@@ -28,9 +28,6 @@ class MetadataRecord:
     sampling_rate: int
     bit_depth: int
 
-    temperature_c: float = 0.0
-    rssi_db: float = 0.0
-
     def to_dict(self) -> dict:
         """Converts the dataclass instance to a JSON-serializable dictionary."""
         data = asdict(self)
