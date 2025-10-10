@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rf-survey-shared"
+dynamic = ["version"]
+description = 'Shared data models and network code for RF survey and server services.'
+readme = "README.md"
+requires-python = ">=3.11"
+
+[project.urls]
+Source = "https://github.com/NSFCUSWIFTPASS/rf-survey-shared"
+
+[tool.hatch.version]
+path = "src/rf_shared/__about__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rf_shared"]
+
+[tool.hatch.envs.test]
+dependencies = [
+  "pytest",
+]
+
+[tool.hatch.envs.test.scripts]
+run = "pytest {args:tests}"
+
+[[tool.hatch.envs.test.matrix]]
+python = ["3.11", "3.12"]
+
+[tool.hatch.envs.ci]
+template = "test"
+# Use built package not source code
+dev-mode = false
