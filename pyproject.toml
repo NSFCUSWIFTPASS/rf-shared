@@ -8,6 +8,9 @@ dynamic = ["version"]
 description = 'Shared data models and network code for RF survey and server services.'
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = [
+    "nats-py==2.11.0"
+]
 
 [project.urls]
 Source = "https://github.com/NSFCUSWIFTPASS/rf-survey-shared"
@@ -18,9 +21,13 @@ path = "src/rf_shared/__about__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/rf_shared"]
 
+[tool.hatch.envs.default]
+python = "3.11"
+
 [tool.hatch.envs.test]
 dependencies = [
   "pytest",
+  "pytest_asyncio"
 ]
 
 [tool.hatch.envs.test.scripts]
