@@ -13,9 +13,9 @@ class NatsConnection:
         self.nc = None
         self.js = None
 
-    async def connect(self, jetstream: bool = False):
+    async def connect(self, jetstream: bool = False, **kwargs):
         """Establishes a connection to the NATS server and sets up JetStream."""
-        self.nc = await nats.connect(self.nats_url, max_reconnect_attempts=3)
+        self.nc = await nats.connect(self.nats_url, **kwargs)
 
         if jetstream:
             self.js = self.nc.jetstream()
