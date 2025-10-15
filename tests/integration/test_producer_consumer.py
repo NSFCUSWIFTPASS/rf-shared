@@ -87,9 +87,17 @@ async def test_producer_sends_consumer_receives(mock_logger, mock_metadata):
         mock_logger.info(f"Test setup: Created stream '{test_stream_name}'")
 
         # --- Instantiate the Producer and Consumer ---
-        producer = NatsProducer(mock_logger, NATS_URL, test_subject)
+        producer = NatsProducer(
+            mock_logger,
+            test_subject,
+            connect_options={"servers": NATS_URL},
+        )
         consumer = NatsConsumer(
-            mock_logger, NATS_URL, test_stream_name, test_subject, test_durable_name
+            mock_logger,
+            test_stream_name,
+            test_subject,
+            test_durable_name,
+            connect_options={"servers": NATS_URL},
         )
 
         try:
@@ -120,9 +128,9 @@ async def test_producer_sends_consumer_receives(mock_logger, mock_metadata):
         finally:
             # --- 4. Teardown Phase (Connections) ---
             mock_logger.info("Closing producer and consumer connections...")
-            if producer._conn.nc:
+            if producer.nc:
                 await producer.close()
-            if consumer._conn.nc:
+            if consumer.nc:
                 await consumer.close()
 
     finally:
