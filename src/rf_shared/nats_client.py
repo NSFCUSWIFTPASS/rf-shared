@@ -21,6 +21,9 @@ class NatsConsumer:
         self.durable_name = durable_name
         self.sub = None
 
+        self.nc = None
+        self.js = None
+
         self._connect_options = connect_options
 
     async def connect(self):
@@ -83,6 +86,9 @@ class NatsProducer:
     ):
         self.logger = logger
         self.subject = subject
+
+        self.nc = None
+        self.js = None
 
         self._connect_options = connect_options
 
