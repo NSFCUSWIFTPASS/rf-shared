@@ -6,50 +6,33 @@ from rf_shared.interfaces import ILogger
 from rf_shared.models import MetadataRecord
 
 
-class NatsConnection:
-    def __init__(self, nats_url: str):
-        self.nats_url = nats_url
-
-        self.nc = None
-        self.js = None
-
-    async def connect(self, jetstream: bool = False, **kwargs):
-        """Establishes a connection to the NATS server and sets up JetStream."""
-        self.nc = await nats.connect(self.nats_url, **kwargs)
-
-        if jetstream:
-            self.js = self.nc.jetstream()
-
-    async def close(self):
-        """Closes the NATS connection."""
-        if self.nc:
-            await self.nc.close()
-
-
 class NatsConsumer:
     def __init__(
         self,
         logger: ILogger,
-        nats_url: str,
         stream_name: str,
         subject: str,
         durable_name: str,
+        connect_options: dict,
     ):
         self.logger = logger
-        self.nats_url = nats_url
         self.stream_name = stream_name
         self.subject = subject
         self.durable_name = durable_name
         self.sub = None
 
-        self._conn = NatsConnection(nats_url)
+        self._connect_options = connect_options
 
     async def connect(self):
         try:
-            await self._conn.connect(jetstream=True)
-            self.logger.info(f"Connected to NATS at {self.nats_url}")
+            self.nc = await nats.connect(**self._connect_options)
+            self.js = self.nc.jetstream()
 
-            self.sub = await self._conn.js.pull_subscribe(
+            self.logger.info(
+                f"Connected to NATS at {self._connect_options.get('servers')}"
+            )
+
+            self.sub = await self.js.pull_subscribe(
                 stream=self.stream_name,
                 subject=self.subject,
                 durable=self.durable_name,
@@ -63,12 +46,13 @@ class NatsConsumer:
             raise
 
     async def close(self):
-        await self._conn.close()
+        if self.nc:
+            await self.nc.close()
         self.logger.info("NATS consumer connection closed.")
 
     async def fetch_single_msg(self, timeout=3):
         """Try to fetch a message. returns None on timeout."""
-        if not self._conn.js or not self.sub:
+        if not self.js or not self.sub:
             raise ConnectionError("NATS is not connected. Call connect() first.")
 
         try:
@@ -94,33 +78,37 @@ class NatsProducer:
     def __init__(
         self,
         logger: ILogger,
-        nats_url: str,
         subject: str,
+        connect_options: dict,
     ):
         self.logger = logger
-        self.nats_url = nats_url
         self.subject = subject
 
-        self._conn = NatsConnection(nats_url)
+        self._connect_options = connect_options
 
     async def connect(self):
         try:
-            await self._conn.connect(jetstream=True)
-            self.logger.info(f"Connected to NATS at {self.nats_url}")
+            self.nc = await nats.connect(**self._connect_options)
+            self.js = self.nc.jetstream()
+
+            self.logger.info(
+                f"Connected to NATS at {self._connect_options.get('servers')}"
+            )
 
         except Exception as e:
             self.logger.error(f"Unexpected error connecting to NATS: {e}")
             raise
 
     async def close(self):
-        await self._conn.close()
-        self.logger.info("NATS producer connection closed.")
+        if self.nc:
+            await self.nc.close()
+        self.logger.info("NATS consumer connection closed.")
 
     async def publish_raw(self, subject: str, payload: bytes):
-        if not self._conn.js:
+        if not self.js:
             raise ConnectionError("NATS is not connected. Call connect() first.")
 
-        await self._conn.js.publish(subject, payload)
+        await self.js.publish(subject, payload)
 
     async def publish_metadata(self, record: MetadataRecord):
         payload = json.dumps(record.to_dict()).encode()
