@@ -4,6 +4,7 @@ import datetime
 from pathlib import Path
 
 from rf_shared.models import MetadataRecord
+from rf_shared.exceptions import ChecksumMismatchError
 
 
 def test_metadata_record_to_dict_serialization(mock_metadata: MetadataRecord):
@@ -89,6 +90,33 @@ def test_from_dict_raises_error_on_incomplete_data():
         MetadataRecord.from_dict(incomplete_dict)
 
 
+VALID_CHECKSUM = "abc"
+INVALID_CHECKSUM = "ffffffffffffffff"
+
+
+def test_validate_checksum_success(mock_metadata: MetadataRecord):
+    try:
+        mock_metadata.validate_checksum(VALID_CHECKSUM)
+    except ChecksumMismatchError:
+        pytest.fail("validate_checksum() raised ChecksumMismatchError unexpectedly!")
+
+
+def test_validate_checksum_raises_exception_on_mismatch(mock_metadata: MetadataRecord):
+    with pytest.raises(ChecksumMismatchError):
+        mock_metadata.validate_checksum(INVALID_CHECKSUM)
+
+
+def test_validate_checksum_mismatch_exception_message(mock_metadata: MetadataRecord):
+    with pytest.raises(ChecksumMismatchError) as excinfo:
+        mock_metadata.validate_checksum(INVALID_CHECKSUM)
+
+    error_message = str(excinfo.value)
+
+    assert "Checksum mismatch" in error_message
+    assert f"Expected: '{VALID_CHECKSUM}'" in error_message
+    assert f"Got: '{INVALID_CHECKSUM}'" in error_message
+
+
 @pytest.fixture
 def mock_metadata():
     return MetadataRecord(
@@ -107,4 +135,5 @@ def mock_metadata():
         sampling_rate=26000000,
         bit_depth=16,
         group="snzfqW",
+        checksum=VALID_CHECKSUM,
     )
