@@ -3,7 +3,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Awaitable, Callable
 
 from rf_shared.exceptions import ChecksumMismatchError
 
@@ -118,3 +118,19 @@ class IQStatistics:
     median: float
     std: float
     kurtosis: float
+
+
+async def no_op_ack():
+    """An awaitable function that does nothing."""
+    pass
+
+
+@dataclass(frozen=True)
+class ReceivedMessage:
+    """
+    A transport-agnostic representation of a message.
+    It contains the data and an optional callback to acknowledge it.
+    """
+
+    data: bytes
+    ack: Callable[[], Awaitable[None]] = no_op_ack
