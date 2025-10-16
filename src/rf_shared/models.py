@@ -2,6 +2,8 @@ import json
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
+import uuid
+from typing import Any, Dict
 
 from rf_shared.exceptions import ChecksumMismatchError
 
@@ -68,6 +70,43 @@ class MetadataRecord:
         with file_path.open("r") as f:
             data_dict = json.load(f)
         return cls.from_dict(data_dict)
+
+
+@dataclass(frozen=True)
+class Envelope:
+    """
+    Defines the message structure for an RF data message.
+    """
+
+    source_path: Path
+    payload: Dict[str, Any]
+    message_id: uuid.UUID
+
+    def to_dict(self) -> dict:
+        """Converts the envelope instance to a JSON-serializable dictionary."""
+        return {
+            "source_path": str(self.source_path),
+            "payload": self.payload,
+            "message_id": str(self.message_id),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Envelope":
+        """Creates an Envelope instance from a dictionary."""
+        return cls(
+            source_path=Path(data["source_path"]),
+            payload=data["payload"],
+            message_id=uuid.UUID(data["message_id"]),
+        )
+
+    @classmethod
+    def from_metadata(cls, metadata: MetadataRecord) -> "Envelope":
+        """Factory method to create an Envelope from a MetadataRecord instance."""
+        return cls(
+            source_path=metadata.source_sc16_path,
+            payload=metadata.to_dict(),
+            message_id=uuid.uuid4(),
+        )
 
 
 @dataclass(frozen=True)
