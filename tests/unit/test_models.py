@@ -5,7 +5,11 @@ import uuid
 from pathlib import Path
 
 from rf_shared.models import MetadataRecord, Envelope
-from rf_shared.exceptions import ChecksumMismatchError
+from rf_shared.exceptions import (
+    ChecksumMismatchError,
+    EnvelopeParsingError,
+    MetadataRecordParsingError,
+)
 
 
 def test_metadata_record_to_dict_serialization(mock_metadata: MetadataRecord):
@@ -18,7 +22,7 @@ def test_metadata_record_to_dict_serialization(mock_metadata: MetadataRecord):
     # ASSERT
     # Verify that the special types were converted to their string representations
     assert isinstance(data_dict["timestamp"], str)
-    assert isinstance(data_dict["source_sc16_path"], str)
+    assert isinstance(data_dict["source_path"], str)
 
     # Check that the timestamp string is in the standard ISO 8601 format and includes timezone
     assert data_dict["timestamp"] == "2024-04-02T23:14:50.009919+00:00"
@@ -83,11 +87,11 @@ def test_from_dict_raises_error_on_incomplete_data():
     incomplete_dict = {
         "hostname": "hcro-rpi-001",
         "frequency": 915000000,
-        "source_sc16_path": "/tmp/dummy.sc16",  # Still needs a value for the Path conversion
+        "source_path": "/tmp/dummy.sc16",  # Still needs a value for the Path conversion
     }
 
     # ACT & ASSERT: Use pytest.raises to confirm a TypeError is thrown
-    with pytest.raises(KeyError):
+    with pytest.raises(MetadataRecordParsingError):
         MetadataRecord.from_dict(incomplete_dict)
 
 
@@ -162,7 +166,7 @@ def test_envelope_from_metadata_factory(mock_metadata: MetadataRecord):
 
     # ASSERT
     assert isinstance(envelope, Envelope)
-    assert envelope.source_path == mock_metadata.source_sc16_path
+    assert envelope.source_path == mock_metadata.source_path
     assert isinstance(envelope.message_id, uuid.UUID)
 
     # The payload should be the dictionary representation of the metadata
@@ -181,7 +185,7 @@ def test_envelope_from_dict_raises_error_on_incomplete_data():
     }
 
     # ACT & ASSERT: Use pytest.raises to confirm a KeyError is thrown
-    with pytest.raises(KeyError):
+    with pytest.raises(EnvelopeParsingError):
         Envelope.from_dict(incomplete_dict)
 
 
@@ -192,7 +196,7 @@ def mock_metadata():
         timestamp=datetime.datetime(
             2024, 4, 2, 23, 14, 50, 9919, tzinfo=datetime.timezone.utc
         ),
-        source_sc16_path=Path("dummy_file_path.sc16"),
+        source_path=Path("dummy_file_path.sc16"),
         serial="3227508",
         organization="hcro_db_test",
         gcs="43.1534N77.6044W",
