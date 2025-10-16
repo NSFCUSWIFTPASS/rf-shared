@@ -1,9 +1,11 @@
 import pytest
+import pytest_asyncio
 import json
 import datetime
 import uuid
 from pathlib import Path
 import nats
+from typing import Tuple
 
 from rf_shared.nats_client import NatsProducer, NatsConsumer
 from rf_shared.models import MetadataRecord, Envelope
@@ -62,88 +64,140 @@ def mock_metadata() -> MetadataRecord:
     )
 
 
+@pytest_asyncio.fixture(scope="function")
+async def nats_stream() -> Tuple[nats.js.client.JetStreamContext, str, str]:
+    """
+    A pytest fixture that sets up and tears down a temporary JetStream stream for a test.
+
+    Yields:
+        A tuple containing:
+        - js (JetStream): The JetStream context object.
+        - stream_name (str): The unique name of the created stream.
+        - subject (str): The unique subject bound to the stream.
+    """
+    stream_name = f"test-stream-{uuid.uuid4()}"
+    subject = f"test.subject.{uuid.uuid4()}"
+
+    # Setup client for managing the stream
+    setup_nc = None
+    try:
+        setup_nc = await nats.connect(NATS_URL)
+        js = setup_nc.jetstream()
+
+        # --- SETUP ---
+        print(f"\n[SETUP] Creating stream '{stream_name}' for subject '{subject}'")
+        await js.add_stream(name=stream_name, subjects=[subject])
+
+        yield js, stream_name, subject
+
+    finally:
+        # --- TEARDOWN ---
+        if setup_nc and js:
+            print(f"\n[TEARDOWN] Deleting stream '{stream_name}'")
+            await js.delete_stream(name=stream_name)
+        if setup_nc:
+            await setup_nc.close()
+
+
 # --- The Main Integration Test ---
 
 
 @pytest.mark.asyncio
-async def test_producer_sends_consumer_receives(mock_logger, mock_metadata):
+async def test_producer_sends_consumer_receives(
+    nats_stream, mock_logger, mock_metadata
+):
     """
     Full integration test:
-    1. Sets up a temporary JetStream stream.
     2. Producer connects and publishes a MetadataRecord.
     3. Consumer connects, subscribes, and fetches the record.
     4. Verifies the received record is identical to the sent one.
-    5. Cleans up the stream.
     """
-    # Use unique names for the test to ensure isolation
-    test_stream_name = f"test-stream-{uuid.uuid4()}"
-    test_subject = f"test.subject.{uuid.uuid4()}"
+    js, test_stream_name, test_subject = nats_stream
     test_durable_name = "test-durable-consumer"
 
-    # --- 1. Setup Phase: Create the JetStream Stream ---
-    setup_nc = await nats.connect(NATS_URL)
-    js = setup_nc.jetstream()
-    try:
-        await js.add_stream(name=test_stream_name, subjects=[test_subject])
-        mock_logger.info(f"Test setup: Created stream '{test_stream_name}'")
+    # --- 1. Instantiate the Producer and Consumer ---
+    producer = NatsProducer(
+        mock_logger,
+        test_subject,
+        connect_options={"servers": NATS_URL},
+    )
+    consumer = NatsConsumer(
+        mock_logger,
+        connect_options={"servers": NATS_URL},
+    )
 
-        # --- Instantiate the Producer and Consumer ---
-        producer = NatsProducer(
-            mock_logger,
-            test_subject,
-            connect_options={"servers": NATS_URL},
-        )
-        consumer = NatsConsumer(
-            mock_logger,
+    try:
+        # --- 2. Act Phase: Connect, Publish, Fetch ---
+        await producer.connect()
+        await consumer.connect()
+
+        fetch_single_msg = await consumer.jetstream_subscribe(
             test_stream_name,
             test_subject,
             test_durable_name,
-            connect_options={"servers": NATS_URL},
         )
 
-        try:
-            # --- 2. Act Phase: Connect, Publish, Fetch ---
-            await producer.connect()
-            await consumer.connect()
+        mock_logger.info("Publishing mock metadata record...")
+        await producer.publish_metadata(mock_metadata)
 
-            mock_logger.info("Publishing mock metadata record...")
-            await producer.publish_metadata(mock_metadata)
+        mock_logger.info("Fetching message from consumer...")
+        received_msg = await fetch_single_msg(timeout=1)
 
-            mock_logger.info("Fetching message from consumer...")
-            received_msg = await consumer.fetch_single_msg(timeout=5)
+        # --- 3. Assert Phase: Verify the Data ---
+        assert received_msg is not None, "Consumer did not receive any message."
 
-            # --- 3. Assert Phase: Verify the Data ---
-            assert received_msg is not None, "Consumer did not receive any message."
+        # Acknowledge the message so it's not redelivered
+        await received_msg.ack()
 
-            # Acknowledge the message so it's not redelivered
-            await consumer.ack(received_msg)
+        data_dict = json.loads(received_msg.data)
+        received_envelope = Envelope.from_dict(data_dict)
 
-            data_dict = json.loads(received_msg.data)
-            received_envelope = Envelope.from_dict(data_dict)
+        mock_logger.info("Verifying sent and received records are identical...")
 
-            mock_logger.info("Verifying sent and received records are identical...")
+        assert (
+            received_envelope.payload == mock_metadata.to_dict()
+        ), "Payload data does not match!"
 
-            assert (
-                received_envelope.payload == mock_metadata.to_dict()
-            ), "Payload data does not match!"
-            assert (
-                received_envelope.source_path == mock_metadata.source_sc16_path
-            ), "Source path does not match!"
+        assert (
+            received_envelope.source_path == mock_metadata.source_sc16_path
+        ), "Source path does not match!"
 
-            assert isinstance(
-                received_envelope.message_id, uuid.UUID
-            ), "message_id is not a valid UUID object!"
-
-        finally:
-            # --- 4. Teardown Phase (Connections) ---
-            mock_logger.info("Closing producer and consumer connections...")
-            if producer.nc:
-                await producer.close()
-            if consumer.nc:
-                await consumer.close()
+        assert isinstance(
+            received_envelope.message_id, uuid.UUID
+        ), "message_id is not a valid UUID object!"
 
     finally:
-        # --- 5. Teardown Phase (Stream) ---
-        mock_logger.info(f"Test teardown: Deleting stream '{test_stream_name}'")
-        await js.delete_stream(name=test_stream_name)
-        await setup_nc.close()
+        # --- 4. Teardown Phase (Connections) ---
+        mock_logger.info("Closing producer and consumer connections...")
+        if producer.nc:
+            await producer.close()
+        if consumer.nc:
+            await consumer.close()
+
+
+@pytest.mark.asyncio
+async def test_consumer_timeout(nats_stream, mock_logger):
+    js, test_stream_name, test_subject = nats_stream
+    test_durable_name = "test-durable-consumer"
+
+    consumer = NatsConsumer(
+        mock_logger,
+        connect_options={"servers": NATS_URL},
+    )
+
+    try:
+        await consumer.connect()
+
+        fetch_single_msg = await consumer.jetstream_subscribe(
+            test_stream_name,
+            test_subject,
+            test_durable_name,
+        )
+
+        received_msg = await fetch_single_msg(timeout=1)
+
+        assert received_msg is None, "Consumer should timeout and receive None."
+
+    finally:
+        if consumer.nc:
+            await consumer.close()
