@@ -1,9 +1,11 @@
 import pytest
 import json
 import datetime
+import uuid
 from pathlib import Path
 
-from rf_shared.models import MetadataRecord
+from rf_shared.models import MetadataRecord, Envelope
+from rf_shared.exceptions import ChecksumMismatchError
 
 
 def test_metadata_record_to_dict_serialization(mock_metadata: MetadataRecord):
@@ -89,6 +91,100 @@ def test_from_dict_raises_error_on_incomplete_data():
         MetadataRecord.from_dict(incomplete_dict)
 
 
+VALID_CHECKSUM = "abc"
+INVALID_CHECKSUM = "ffffffffffffffff"
+
+
+def test_validate_checksum_success(mock_metadata: MetadataRecord):
+    try:
+        mock_metadata.validate_checksum(VALID_CHECKSUM)
+    except ChecksumMismatchError:
+        pytest.fail("validate_checksum() raised ChecksumMismatchError unexpectedly!")
+
+
+def test_validate_checksum_raises_exception_on_mismatch(mock_metadata: MetadataRecord):
+    with pytest.raises(ChecksumMismatchError):
+        mock_metadata.validate_checksum(INVALID_CHECKSUM)
+
+
+def test_validate_checksum_mismatch_exception_message(mock_metadata: MetadataRecord):
+    with pytest.raises(ChecksumMismatchError) as excinfo:
+        mock_metadata.validate_checksum(INVALID_CHECKSUM)
+
+    error_message = str(excinfo.value)
+
+    assert "Checksum mismatch" in error_message
+    assert f"Expected: '{VALID_CHECKSUM}'" in error_message
+    assert f"Got: '{INVALID_CHECKSUM}'" in error_message
+
+
+def test_envelope_to_dict_serialization(mock_envelope: Envelope):
+    """
+    Tests that the to_dict() method correctly serializes Path and UUID objects to strings.
+    """
+    # ACT
+    data_dict = mock_envelope.to_dict()
+
+    # ASSERT
+    # Verify that the special types were converted to their string representations
+    assert isinstance(data_dict["source_path"], str)
+    assert isinstance(data_dict["message_id"], str)
+    assert isinstance(data_dict["payload"], dict)
+
+    # Verify that the UUID string is valid by attempting to convert it back
+    try:
+        uuid.UUID(data_dict["message_id"])
+    except ValueError:
+        pytest.fail("The message_id was not serialized to a valid UUID string.")
+
+
+def test_envelope_from_dict_deserialization_round_trip(mock_envelope: Envelope):
+    """
+    Tests the full "round-trip" capability: converting an envelope to a dict and back again.
+    """
+    # ARRANGE: Create the dictionary representation of our golden master object
+    original_dict = mock_envelope.to_dict()
+
+    # ACT: Create a new instance from that dictionary
+    recreated_envelope = Envelope.from_dict(original_dict)
+
+    # ASSERT: The recreated object must be exactly equal to the original fixture object
+    assert isinstance(recreated_envelope, Envelope)
+    assert recreated_envelope == mock_envelope
+
+
+def test_envelope_from_metadata_factory(mock_metadata: MetadataRecord):
+    """
+    Tests the from_metadata() factory method to ensure it correctly constructs an envelope.
+    """
+    # ACT
+    envelope = Envelope.from_metadata(mock_metadata)
+
+    # ASSERT
+    assert isinstance(envelope, Envelope)
+    assert envelope.source_path == mock_metadata.source_sc16_path
+    assert isinstance(envelope.message_id, uuid.UUID)
+
+    # The payload should be the dictionary representation of the metadata
+    assert envelope.payload == mock_metadata.to_dict()
+
+
+def test_envelope_from_dict_raises_error_on_incomplete_data():
+    """
+    Tests that the from_dict() method correctly raises a KeyError
+    if required fields are missing from the input dictionary.
+    """
+    # ARRANGE: Create a dictionary that is missing a required field like 'source_path'
+    incomplete_dict = {
+        "payload": {"some": "data"},
+        "message_id": str(uuid.uuid4()),
+    }
+
+    # ACT & ASSERT: Use pytest.raises to confirm a KeyError is thrown
+    with pytest.raises(KeyError):
+        Envelope.from_dict(incomplete_dict)
+
+
 @pytest.fixture
 def mock_metadata():
     return MetadataRecord(
@@ -107,4 +203,10 @@ def mock_metadata():
         sampling_rate=26000000,
         bit_depth=16,
         group="snzfqW",
+        checksum=VALID_CHECKSUM,
     )
+
+
+@pytest.fixture
+def mock_envelope(mock_metadata: MetadataRecord) -> Envelope:
+    return Envelope.from_metadata(mock_metadata)
