@@ -6,7 +6,7 @@ from pathlib import Path
 import nats
 
 from rf_shared.nats_client import NatsProducer, NatsConsumer
-from rf_shared.models import MetadataRecord
+from rf_shared.models import MetadataRecord, Envelope
 from rf_shared.interfaces import ILogger
 
 NATS_URL = "nats://password@localhost:4222"
@@ -119,12 +119,20 @@ async def test_producer_sends_consumer_receives(mock_logger, mock_metadata):
             await consumer.ack(received_msg)
 
             data_dict = json.loads(received_msg.data)
-            received_record = MetadataRecord.from_dict(data_dict)
+            received_envelope = Envelope.from_dict(data_dict)
 
             mock_logger.info("Verifying sent and received records are identical...")
+
             assert (
-                received_record == mock_metadata
-            ), "Received record does not match sent record!"
+                received_envelope.payload == mock_metadata.to_dict()
+            ), "Payload data does not match!"
+            assert (
+                received_envelope.source_path == mock_metadata.source_sc16_path
+            ), "Source path does not match!"
+
+            assert isinstance(
+                received_envelope.message_id, uuid.UUID
+            ), "message_id is not a valid UUID object!"
 
         finally:
             # --- 4. Teardown Phase (Connections) ---
