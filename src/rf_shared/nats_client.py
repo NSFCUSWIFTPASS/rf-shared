@@ -3,7 +3,7 @@ import json
 import nats
 
 from rf_shared.interfaces import ILogger
-from rf_shared.models import MetadataRecord
+from rf_shared.models import MetadataRecord, Envelope
 
 
 class NatsConsumer:
@@ -117,5 +117,8 @@ class NatsProducer:
         await self.js.publish(subject, payload)
 
     async def publish_metadata(self, record: MetadataRecord):
-        payload = json.dumps(record.to_dict()).encode()
+        envelope = Envelope.from_metadata(record)
+        envelope_dict = envelope.to_dict()
+        payload = json.dumps(envelope_dict).encode()
+
         await self.publish_raw(self.subject, payload)
