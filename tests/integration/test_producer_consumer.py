@@ -58,6 +58,7 @@ def mock_metadata() -> MetadataRecord:
         sampling_rate=26000000,
         bit_depth=16,
         group="snzfqW",
+        checksum="abc",
     )
 
 
