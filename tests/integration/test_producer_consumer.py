@@ -49,7 +49,7 @@ def mock_metadata() -> MetadataRecord:
         timestamp=datetime.datetime(
             2024, 4, 2, 23, 14, 50, 9919, tzinfo=datetime.timezone.utc
         ),
-        source_sc16_path=Path("/test/dummy_file_path.sc16"),
+        source_path=Path("/test/dummy_file_path.sc16"),
         serial="3227508",
         organization="hcro_db_test",
         gcs="43.1534N77.6044W",
@@ -159,7 +159,7 @@ async def test_producer_sends_consumer_receives(
         ), "Payload data does not match!"
 
         assert (
-            received_envelope.source_path == mock_metadata.source_sc16_path
+            received_envelope.source_path == mock_metadata.source_path
         ), "Source path does not match!"
 
         assert isinstance(

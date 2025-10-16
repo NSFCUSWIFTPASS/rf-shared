@@ -5,7 +5,11 @@ from pathlib import Path
 import uuid
 from typing import Any, Dict, Awaitable, Callable
 
-from rf_shared.exceptions import ChecksumMismatchError
+from rf_shared.exceptions import (
+    ChecksumMismatchError,
+    MetadataRecordParsingError,
+    EnvelopeParsingError,
+)
 
 
 @dataclass(frozen=True)
@@ -15,7 +19,7 @@ class MetadataRecord:
     # Core identifying information
     hostname: str
     timestamp: datetime
-    source_sc16_path: Path
+    source_path: Path
     serial: str
 
     # Grouping and location info
@@ -47,17 +51,21 @@ class MetadataRecord:
         # Convert datetime to ISO 8601 string format
         data["timestamp"] = self.timestamp.isoformat()
         # Convert Path object to a string
-        data["source_sc16_path"] = str(self.source_sc16_path)
+        data["source_path"] = str(self.source_path)
         return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "MetadataRecord":
         """Creates a MetadataRecord instance from a dictionary."""
-        # Convert the ISO 8601 string back to a datetime object
-        data["timestamp"] = datetime.fromisoformat(data["timestamp"])
-        # Convert the string path back to a Path object
-        data["source_sc16_path"] = Path(data["source_sc16_path"])
-        return cls(**data)
+        try:
+            data_copy = data.copy()
+            data_copy["timestamp"] = datetime.fromisoformat(data_copy["timestamp"])
+            data_copy["source_path"] = Path(data_copy["source_path"])
+            return cls(**data_copy)
+        except (KeyError, TypeError, ValueError) as e:
+            raise MetadataRecordParsingError(
+                f"Invalid metadata payload structure: {e}"
+            ) from e
 
     def write_to_json_file(self, file_path: Path):
         """Serializes this record and writes it to a JSON file."""
@@ -93,17 +101,20 @@ class Envelope:
     @classmethod
     def from_dict(cls, data: dict) -> "Envelope":
         """Creates an Envelope instance from a dictionary."""
-        return cls(
-            source_path=Path(data["source_path"]),
-            payload=data["payload"],
-            message_id=uuid.UUID(data["message_id"]),
-        )
+        try:
+            return cls(
+                source_path=Path(data["source_path"]),
+                payload=data["payload"],
+                message_id=uuid.UUID(data["message_id"]),
+            )
+        except (KeyError, TypeError, ValueError) as e:
+            raise EnvelopeParsingError(f"Invalid envelope structure: {e}") from e
 
     @classmethod
     def from_metadata(cls, metadata: MetadataRecord) -> "Envelope":
         """Factory method to create an Envelope from a MetadataRecord instance."""
         return cls(
-            source_path=metadata.source_sc16_path,
+            source_path=metadata.source_path,
             payload=metadata.to_dict(),
             message_id=uuid.uuid4(),
         )
