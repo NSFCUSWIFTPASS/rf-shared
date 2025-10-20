@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rf-survey-shared"
+name = "rf-shared"
 dynamic = ["version"]
-description = 'Shared data models and network code for RF survey and server services.'
+description = 'Shared data models and network code for RF survey and processor services.'
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.urls]
-Source = "https://github.com/NSFCUSWIFTPASS/rf-survey-shared"
+Source = "https://github.com/NSFCUSWIFTPASS/rf-shared"
 
 [tool.hatch.version]
 path = "src/rf_shared/__about__.py"
