@@ -1,13 +1,11 @@
 import pytest
 import pytest_asyncio
-import json
 import datetime
 import uuid
 from pathlib import Path
 import nats
 from typing import Tuple
 
-# Your refactored classes are imported here
 from rf_shared.nats_client import NatsProducer, NatsConsumer
 from rf_shared.models import MetadataRecord, Envelope
 from rf_shared.interfaces import ILogger
@@ -15,7 +13,7 @@ from rf_shared.interfaces import ILogger
 NATS_URL = "nats://password@localhost:4222"
 
 
-# --- Test Fixtures and Mocks (No changes needed here) ---
+# --- Test Fixtures and Mocks ---
 
 
 class MockLogger(ILogger):
@@ -130,7 +128,7 @@ async def test_producer_sends_consumer_receives(
         # --- Application layer (the test) is now responsible for serialization ---
         mock_logger.info("Serializing mock metadata record...")
         envelope_to_send = Envelope.from_metadata(mock_metadata)
-        payload_to_send = json.dumps(envelope_to_send.to_dict()).encode()
+        payload_to_send = envelope_to_send.model_dump_json().encode()
 
         mock_logger.info("Publishing mock metadata record...")
         # Use the generic publish method. It will use the default_subject.
@@ -143,11 +141,10 @@ async def test_producer_sends_consumer_receives(
         assert received_msg is not None, "Consumer did not receive any message."
 
         await received_msg.ack()
-        data_dict = json.loads(received_msg.data)
-        received_envelope = Envelope.from_dict(data_dict)
+        received_envelope = Envelope.model_validate_json(received_msg.data)
 
         mock_logger.info("Verifying sent and received records are identical...")
-        assert received_envelope.payload == mock_metadata.to_dict()
+        assert received_envelope.payload == mock_metadata.model_dump(mode="json")
         assert received_envelope.source_path == mock_metadata.source_path
         assert isinstance(received_envelope.message_id, uuid.UUID)
 
