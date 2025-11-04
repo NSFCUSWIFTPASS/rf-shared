@@ -1,9 +1,8 @@
-import json
 import nats
 from typing import Awaitable, Callable
 
 from rf_shared.interfaces import ILogger
-from rf_shared.models import MetadataRecord, Envelope, ReceivedMessage
+from rf_shared.models import ReceivedMessage
 
 
 class NatsConsumer:
@@ -103,42 +102,60 @@ class NatsProducer:
         logger: ILogger,
         subject: str,
         connect_options: dict,
+        mode: str = "jetstream",
     ):
         self.logger = logger
         self.subject = subject
 
+        if mode not in ["jetstream", "core"]:
+            raise ValueError("mode must be 'jetstream' or 'core'")
+        self.mode = mode
+
         self.nc = None
         self.js = None
-
         self._connect_options = connect_options
 
     async def connect(self):
+        """Connects to NATS and conditionally initializes JetStream."""
         try:
             self.nc = await nats.connect(**self._connect_options)
-            self.js = self.nc.jetstream()
-
             self.logger.info(
                 f"Connected to NATS at {self._connect_options.get('servers')}"
             )
 
+            if self.mode == "jetstream":
+                self.js = self.nc.jetstream()
+                self.logger.info("NATS Producer configured for JetStream.")
+            else:
+                self.logger.info("NATS Producer configured for Core NATS.")
         except Exception as e:
             self.logger.error(f"Unexpected error connecting to NATS: {e}")
             raise
 
     async def close(self):
-        if self.nc:
+        if self.nc and not self.nc.is_closed:
             await self.nc.close()
-        self.logger.info("NATS consumer connection closed.")
+        self.logger.info("NATS producer connection closed.")
 
-    async def publish_raw(self, subject: str, payload: bytes):
-        if not self.js:
+    async def publish(self, payload: bytes, subject: str | None = None):
+        """
+        Publishes a raw payload.
+        Uses the provided subject, or falls back to the producer's default_subject.
+        """
+        if not self.nc or self.nc.is_closed:
             raise ConnectionError("NATS is not connected. Call connect() first.")
 
-        await self.js.publish(subject, payload)
+        target_subject = subject or self.subject
 
-    async def publish_metadata(self, record: MetadataRecord):
-        envelope = Envelope.from_metadata(record)
-        envelope_dict = envelope.to_dict()
-        payload = json.dumps(envelope_dict).encode()
+        self.logger.debug(
+            f"Publishing {len(payload)} bytes to subject '{target_subject}'"
+        )
 
-        await self.publish_raw(self.subject, payload)
+        if self.mode == "jetstream":
+            if not self.js:
+                raise ConnectionError(
+                    "JetStream is not initialized. Check producer mode."
+                )
+            await self.js.publish(target_subject, payload)
+        else:  # 'core' mode
+            await self.nc.publish(target_subject, payload)
