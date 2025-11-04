@@ -1,20 +1,55 @@
-import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import uuid
-from typing import Any, Dict, Awaitable, Callable
+from typing import Any, Dict, Awaitable, Callable, List, Self
+from pydantic import BaseModel, model_validator, ConfigDict, ValidationError
 
-from rf_shared.exceptions import (
-    ChecksumMismatchError,
-    MetadataRecordParsingError,
-    EnvelopeParsingError,
-)
+from rf_shared.exceptions import ChecksumMismatchError
+
+__all__ = ["ValidationError"]
 
 
-@dataclass(frozen=True)
-class MetadataRecord:
+class IQStatistics(BaseModel):
+    """Represents the calculated power statistics from an IQ data file."""
+
+    model_config = ConfigDict(frozen=True)
+
+    average: float
+    max: float
+    median: float
+    std: float
+    kurtosis: float
+
+
+class PSDData(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    num_bins: int
+    center_freq: float
+    sample_rate: int
+    powers: List[float]
+    frequencies: List[float]
+
+    @model_validator(mode="after")
+    def check_lengths(self):
+        if len(self.powers) != self.num_bins:
+            raise ValueError(
+                f"powers length ({len(self.powers)}) != num_bins ({self.num_bins})"
+            )
+
+        if len(self.frequencies) != self.num_bins:
+            raise ValueError(
+                f"frequencies length ({len(self.frequencies)}) != num_bins ({self.num_bins})"
+            )
+
+        return self
+
+
+class MetadataRecord(BaseModel):
     """Represents the metadata for a single IQ data recording."""
+
+    model_config = ConfigDict(frozen=True)
 
     # Core identifying information
     hostname: str
@@ -32,103 +67,46 @@ class MetadataRecord:
     interval: int
     length: float
     gain: int
-
     sampling_rate: int
     bit_depth: int
-
     checksum: str
 
     def validate_checksum(self, calculated_checksum: str):
+        """This business logic method can remain exactly as it is."""
         if self.checksum != calculated_checksum:
             raise ChecksumMismatchError(
-                f"Checksum mismatch for file. "
-                f"Expected: '{self.checksum}', Got: '{calculated_checksum}'"
+                f"Checksum mismatch for file. Expected: '{self.checksum}', Got: '{calculated_checksum}'"
             )
 
-    def to_dict(self) -> dict:
-        """Converts the dataclass instance to a JSON-serializable dictionary."""
-        data = asdict(self)
-        # Convert datetime to ISO 8601 string format
-        data["timestamp"] = self.timestamp.isoformat()
-        # Convert Path object to a string
-        data["source_path"] = str(self.source_path)
-        return data
 
-    @classmethod
-    def from_dict(cls, data: dict) -> "MetadataRecord":
-        """Creates a MetadataRecord instance from a dictionary."""
-        try:
-            data_copy = data.copy()
-            data_copy["timestamp"] = datetime.fromisoformat(data_copy["timestamp"])
-            data_copy["source_path"] = Path(data_copy["source_path"])
-            return cls(**data_copy)
-        except (KeyError, TypeError, ValueError) as e:
-            raise MetadataRecordParsingError(
-                f"Invalid metadata payload structure: {e}"
-            ) from e
+class Envelope(BaseModel):
+    """Defines the message structure for an RF data message."""
 
-    def write_to_json_file(self, file_path: Path):
-        """Serializes this record and writes it to a JSON file."""
-        with file_path.open("w") as f:
-            json.dump(self.to_dict(), f, indent=4)
-
-    @classmethod
-    def load_from_json_file(cls, file_path: Path) -> "MetadataRecord":
-        """Loads a record from a JSON file and creates a MetadataRecord instance."""
-        with file_path.open("r") as f:
-            data_dict = json.load(f)
-        return cls.from_dict(data_dict)
-
-
-@dataclass(frozen=True)
-class Envelope:
-    """
-    Defines the message structure for an RF data message.
-    """
+    model_config = ConfigDict(frozen=True)
 
     source_path: Path
     payload: Dict[str, Any]
     message_id: uuid.UUID
 
-    def to_dict(self) -> dict:
-        """Converts the envelope instance to a JSON-serializable dictionary."""
-        return {
-            "source_path": str(self.source_path),
-            "payload": self.payload,
-            "message_id": str(self.message_id),
-        }
-
     @classmethod
-    def from_dict(cls, data: dict) -> "Envelope":
-        """Creates an Envelope instance from a dictionary."""
-        try:
-            return cls(
-                source_path=Path(data["source_path"]),
-                payload=data["payload"],
-                message_id=uuid.UUID(data["message_id"]),
-            )
-        except (KeyError, TypeError, ValueError) as e:
-            raise EnvelopeParsingError(f"Invalid envelope structure: {e}") from e
-
-    @classmethod
-    def from_metadata(cls, metadata: MetadataRecord) -> "Envelope":
+    def from_metadata(cls, metadata: MetadataRecord) -> Self:
         """Factory method to create an Envelope from a MetadataRecord instance."""
         return cls(
             source_path=metadata.source_path,
-            payload=metadata.to_dict(),
+            payload=metadata.model_dump(mode="json"),
             message_id=uuid.uuid4(),
         )
 
 
-@dataclass(frozen=True)
-class IQStatistics:
-    """Represents the calculated power statistics from an IQ data file."""
+class ProcessedDataEnvelope(BaseModel):
+    """Defines the message structure for a processed data message."""
 
-    average: float
-    max: float
-    median: float
-    std: float
-    kurtosis: float
+    model_config = ConfigDict(frozen=True)
+
+    metadata: MetadataRecord
+    statistics: IQStatistics
+    psd_data: PSDData
+    message_id: uuid.UUID
 
 
 async def no_op_ack():
