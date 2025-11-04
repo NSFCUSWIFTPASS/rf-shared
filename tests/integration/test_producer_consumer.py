@@ -7,6 +7,7 @@ from pathlib import Path
 import nats
 from typing import Tuple
 
+# Your refactored classes are imported here
 from rf_shared.nats_client import NatsProducer, NatsConsumer
 from rf_shared.models import MetadataRecord, Envelope
 from rf_shared.interfaces import ILogger
@@ -14,7 +15,7 @@ from rf_shared.interfaces import ILogger
 NATS_URL = "nats://password@localhost:4222"
 
 
-# --- Test Fixtures and Mocks ---
+# --- Test Fixtures and Mocks (No changes needed here) ---
 
 
 class MockLogger(ILogger):
@@ -68,30 +69,18 @@ def mock_metadata() -> MetadataRecord:
 async def nats_stream() -> Tuple[nats.js.client.JetStreamContext, str, str]:
     """
     A pytest fixture that sets up and tears down a temporary JetStream stream for a test.
-
-    Yields:
-        A tuple containing:
-        - js (JetStream): The JetStream context object.
-        - stream_name (str): The unique name of the created stream.
-        - subject (str): The unique subject bound to the stream.
     """
     stream_name = f"test-stream-{uuid.uuid4()}"
     subject = f"test.subject.{uuid.uuid4()}"
-
-    # Setup client for managing the stream
     setup_nc = None
+    js = None
     try:
         setup_nc = await nats.connect(NATS_URL)
         js = setup_nc.jetstream()
-
-        # --- SETUP ---
         print(f"\n[SETUP] Creating stream '{stream_name}' for subject '{subject}'")
         await js.add_stream(name=stream_name, subjects=[subject])
-
         yield js, stream_name, subject
-
     finally:
-        # --- TEARDOWN ---
         if setup_nc and js:
             print(f"\n[TEARDOWN] Deleting stream '{stream_name}'")
             await js.delete_stream(name=stream_name)
@@ -108,21 +97,22 @@ async def test_producer_sends_consumer_receives(
 ):
     """
     Full integration test:
-    2. Producer connects and publishes a MetadataRecord.
-    3. Consumer connects, subscribes, and fetches the record.
-    4. Verifies the received record is identical to the sent one.
+    1. Producer connects and publishes a serialized MetadataRecord.
+    2. Consumer connects, subscribes, and fetches the message.
+    3. Verifies the received record is identical to the sent one.
     """
     js, test_stream_name, test_subject = nats_stream
     test_durable_name = "test-durable-consumer"
 
     # --- 1. Instantiate the Producer and Consumer ---
     producer = NatsProducer(
-        mock_logger,
-        test_subject,
+        logger=mock_logger,
         connect_options={"servers": NATS_URL},
+        subject=test_subject,
+        mode="jetstream",  # Test JetStream mode
     )
     consumer = NatsConsumer(
-        mock_logger,
+        logger=mock_logger,
         connect_options={"servers": NATS_URL},
     )
 
@@ -137,34 +127,29 @@ async def test_producer_sends_consumer_receives(
             test_durable_name,
         )
 
+        # --- Application layer (the test) is now responsible for serialization ---
+        mock_logger.info("Serializing mock metadata record...")
+        envelope_to_send = Envelope.from_metadata(mock_metadata)
+        payload_to_send = json.dumps(envelope_to_send.to_dict()).encode()
+
         mock_logger.info("Publishing mock metadata record...")
-        await producer.publish_metadata(mock_metadata)
+        # Use the generic publish method. It will use the default_subject.
+        await producer.publish(payload_to_send)
 
         mock_logger.info("Fetching message from consumer...")
         received_msg = await fetch_single_msg(timeout=1)
 
-        # --- 3. Assert Phase: Verify the Data ---
+        # --- 3. Assert Phase: Verify the Data (No changes needed here) ---
         assert received_msg is not None, "Consumer did not receive any message."
 
-        # Acknowledge the message so it's not redelivered
         await received_msg.ack()
-
         data_dict = json.loads(received_msg.data)
         received_envelope = Envelope.from_dict(data_dict)
 
         mock_logger.info("Verifying sent and received records are identical...")
-
-        assert (
-            received_envelope.payload == mock_metadata.to_dict()
-        ), "Payload data does not match!"
-
-        assert (
-            received_envelope.source_path == mock_metadata.source_path
-        ), "Source path does not match!"
-
-        assert isinstance(
-            received_envelope.message_id, uuid.UUID
-        ), "message_id is not a valid UUID object!"
+        assert received_envelope.payload == mock_metadata.to_dict()
+        assert received_envelope.source_path == mock_metadata.source_path
+        assert isinstance(received_envelope.message_id, uuid.UUID)
 
     finally:
         # --- 4. Teardown Phase (Connections) ---
@@ -180,14 +165,14 @@ async def test_consumer_timeout(nats_stream, mock_logger):
     js, test_stream_name, test_subject = nats_stream
     test_durable_name = "test-durable-consumer"
 
+    # --- Be explicit about needing JetStream ---
     consumer = NatsConsumer(
-        mock_logger,
+        logger=mock_logger,
         connect_options={"servers": NATS_URL},
     )
 
     try:
         await consumer.connect()
-
         fetch_single_msg = await consumer.jetstream_subscribe(
             test_stream_name,
             test_subject,
@@ -195,7 +180,6 @@ async def test_consumer_timeout(nats_stream, mock_logger):
         )
 
         received_msg = await fetch_single_msg(timeout=1)
-
         assert received_msg is None, "Consumer should timeout and receive None."
 
     finally:
