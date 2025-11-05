@@ -1,4 +1,5 @@
 import nats
+import asyncio
 from typing import Awaitable, Callable
 
 from rf_shared.interfaces import ILogger
@@ -65,15 +66,17 @@ class NatsConsumer:
 
         async def fetch_one(timeout=3) -> ReceivedMessage | None:
             try:
-                msgs = await sub.fetch(1, timeout=timeout)
+                msgs = await asyncio.wait_for(
+                    sub.fetch(1, timeout=timeout), timeout=timeout + 0.1
+                )
+
                 if not msgs:
                     return None
 
                 nats_msg = msgs[0]
-
                 return ReceivedMessage(data=nats_msg.data, ack=nats_msg.ack)
 
-            except nats.errors.TimeoutError:
+            except (nats.errors.TimeoutError, asyncio.TimeoutError):
                 return None
 
         return fetch_one
