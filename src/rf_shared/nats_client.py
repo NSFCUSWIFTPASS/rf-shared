@@ -19,6 +19,13 @@ class NatsConsumer:
 
         self._connect_options = connect_options
 
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
     async def connect(self):
         """
         Connects to NATs.
@@ -114,6 +121,13 @@ class NatsProducer:
         self.nc = None
         self.js = None
         self._connect_options = connect_options
+
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
     async def connect(self):
         """Connects to NATS and conditionally initializes JetStream."""
