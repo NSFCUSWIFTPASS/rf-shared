@@ -8,37 +8,8 @@ from typing import Tuple
 
 from rf_shared.nats_client import NatsProducer, NatsConsumer
 from rf_shared.models import MetadataRecord, Envelope
-from rf_shared.interfaces import ILogger
 
 NATS_URL = "nats://password@localhost:4222"
-
-
-# --- Test Fixtures and Mocks ---
-
-
-class MockLogger(ILogger):
-    def _log(self, level, msg, *args, **kwargs):
-        print(f"[{level}] {msg}")
-
-    def info(self, msg, *args, **kwargs):
-        self._log("INFO", msg)
-
-    def debug(self, msg, *args, **kwargs):
-        self._log("DEBUG", msg)
-
-    def warning(self, msg, *args, **kwargs):
-        self._log("WARNING", msg)
-
-    def error(self, msg, *args, **kwargs):
-        self._log("ERROR", msg)
-
-    def critical(self, msg, *args, **kwargs):
-        self._log("CRITICAL", msg)
-
-
-@pytest.fixture
-def mock_logger() -> ILogger:
-    return MockLogger()
 
 
 @pytest.fixture
@@ -90,9 +61,7 @@ async def nats_stream() -> Tuple[nats.js.client.JetStreamContext, str, str]:
 
 
 @pytest.mark.asyncio
-async def test_producer_sends_consumer_receives(
-    nats_stream, mock_logger, mock_metadata
-):
+async def test_producer_sends_consumer_receives(nats_stream, mock_metadata):
     """
     Full integration test:
     1. Producer connects and publishes a serialized MetadataRecord.
@@ -104,13 +73,11 @@ async def test_producer_sends_consumer_receives(
 
     # --- 1. Instantiate the Producer and Consumer ---
     producer = NatsProducer(
-        logger=mock_logger,
         connect_options={"servers": NATS_URL},
         subject=test_subject,
         mode="jetstream",  # Test JetStream mode
     )
     consumer = NatsConsumer(
-        logger=mock_logger,
         connect_options={"servers": NATS_URL},
     )
 
@@ -126,15 +93,12 @@ async def test_producer_sends_consumer_receives(
         )
 
         # --- Application layer (the test) is now responsible for serialization ---
-        mock_logger.info("Serializing mock metadata record...")
         envelope_to_send = Envelope.from_metadata(mock_metadata)
         payload_to_send = envelope_to_send.model_dump_json().encode()
 
-        mock_logger.info("Publishing mock metadata record...")
         # Use the generic publish method. It will use the default_subject.
         await producer.publish(payload_to_send)
 
-        mock_logger.info("Fetching message from consumer...")
         received_msg = await fetch_single_msg(timeout=1)
 
         # --- 3. Assert Phase: Verify the Data (No changes needed here) ---
@@ -143,14 +107,12 @@ async def test_producer_sends_consumer_receives(
         await received_msg.ack()
         received_envelope = Envelope.model_validate_json(received_msg.data)
 
-        mock_logger.info("Verifying sent and received records are identical...")
         assert received_envelope.payload == mock_metadata.model_dump(mode="json")
         assert received_envelope.source_path == mock_metadata.source_path
         assert isinstance(received_envelope.message_id, uuid.UUID)
 
     finally:
         # --- 4. Teardown Phase (Connections) ---
-        mock_logger.info("Closing producer and consumer connections...")
         if producer.nc:
             await producer.close()
         if consumer.nc:
@@ -158,13 +120,12 @@ async def test_producer_sends_consumer_receives(
 
 
 @pytest.mark.asyncio
-async def test_consumer_timeout(nats_stream, mock_logger):
+async def test_consumer_timeout(nats_stream):
     js, test_stream_name, test_subject = nats_stream
     test_durable_name = "test-durable-consumer"
 
     # --- Be explicit about needing JetStream ---
     consumer = NatsConsumer(
-        logger=mock_logger,
         connect_options={"servers": NATS_URL},
     )
 
