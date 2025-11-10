@@ -2,36 +2,32 @@ import sys
 import logging
 
 
-class Logger:
-    def __init__(self, name: str, log_level: str = "DEBUG"):
-        # create logger
-        self.name = name.lower()
-        self.logger = logging.getLogger(self.name)
-        self.logger.setLevel(logging.DEBUG)
+def setup_logging(log_level: str = "INFO", root_logger_name: str | None = None):
+    """
+    Configures the root logger for the application.
+    """
+    # Get the target logger. If no name is provided, it's the absolute root logger.
+    log = logging.getLogger(root_logger_name)
 
-        # prevent duplicate handlers
-        if not self.logger.handlers:
-            self.logger.propagate = False
+    # Set the level on this logger.
+    log.setLevel(log_level)
 
-            console_handler = logging.StreamHandler(sys.stderr)
-            console_formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            console_handler.setFormatter(console_formatter)
-            console_handler.setLevel(log_level)
-            self.logger.addHandler(console_handler)
+    # If a handler is already configured, we assume setup has been done elsewhere.
+    if log.hasHandlers():
+        log.debug("Logger already has handlers; skipping setup.")
+        return
 
-    def debug(self, msg: str, *args, **kwargs):
-        self.logger.debug(msg, *args, **kwargs)
+    # Create a handler to write to stderr
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(log_level)
 
-    def info(self, msg: str, *args, **kwargs):
-        self.logger.info(msg, *args, **kwargs)
+    # Create a formatter
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
 
-    def warning(self, msg: str, *args, **kwargs):
-        self.logger.warning(msg, *args, **kwargs)
+    # Add the handler to the logger
+    log.addHandler(handler)
 
-    def error(self, msg: str, *args, **kwargs):
-        self.logger.error(msg, *args, **kwargs)
-
-    def critical(self, msg: str, *args, **kwargs):
-        self.logger.critical(msg, *args, **kwargs)
+    log.info(f"Logging configured for '{log.name or 'root'}' at level {log_level}.")

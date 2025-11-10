@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 import uuid
 from typing import Any, Dict, Awaitable, Callable, List, Self
-from pydantic import BaseModel, model_validator, ConfigDict, ValidationError
+from pydantic import BaseModel, model_validator, ConfigDict, ValidationError, Field
 
 from rf_shared.exceptions import ChecksumMismatchError
 
@@ -106,7 +106,7 @@ class ProcessedDataEnvelope(BaseModel):
     metadata: MetadataRecord
     statistics: IQStatistics
     psd_data: PSDData
-    message_id: uuid.UUID
+    message_id: uuid.UUID = Field(default_factory=uuid.uuid4)
 
 
 async def no_op_ack():
