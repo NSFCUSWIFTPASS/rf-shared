@@ -8,6 +8,22 @@ from rf_shared.models import ReceivedMessage
 logger = logging.getLogger(__name__)
 
 
+async def _default_error_cb(e):
+    logger.error(f"NATS Error: {e}")
+
+
+async def _default_disconnected_cb():
+    logger.warning("NATS disconnected... attempting to reconnect.")
+
+
+async def _default_reconnected_cb():
+    logger.info("NATS reconnected successfully.")
+
+
+async def _default_closed_cb():
+    logger.error("NATS connection closed permanently.")
+
+
 class NatsConsumer:
     def __init__(
         self,
@@ -31,13 +47,23 @@ class NatsConsumer:
         """
         Connects to NATs.
         """
-        try:
-            self.nc = await nats.connect(**self._connect_options)
+        options = {
+            "max_reconnect_attempts": -1,
+            "reconnect_time_wait": 2,
+            "error_cb": _default_error_cb,
+            "disconnected_cb": _default_disconnected_cb,
+            "reconnected_cb": _default_reconnected_cb,
+            "closed_cb": _default_closed_cb,
+        }
 
+        options.update(self._connect_options)
+
+        try:
+            self.nc = await nats.connect(**options)
             logger.info(f"Connected to NATS at {self._connect_options.get('servers')}")
 
         except Exception as e:
-            logger.error(f"NATS connection failed: {e}")
+            logger.error(f"NATS initial connection failed: {e}")
             raise
 
     async def close(self):
@@ -64,9 +90,7 @@ class NatsConsumer:
 
         async def fetch_one(timeout=3) -> ReceivedMessage | None:
             try:
-                msgs = await asyncio.wait_for(
-                    sub.fetch(1, timeout=timeout), timeout=timeout + 0.1
-                )
+                msgs = await sub.fetch(1, timeout=timeout)
 
                 if not msgs:
                     return None
@@ -74,7 +98,14 @@ class NatsConsumer:
                 nats_msg = msgs[0]
                 return ReceivedMessage(data=nats_msg.data, ack=nats_msg.ack)
 
-            except (nats.errors.TimeoutError, asyncio.TimeoutError):
+            except nats.errors.TimeoutError:
+                return None
+            except (nats.errors.ConnectionClosedError, nats.errors.NoRespondersError):
+                logger.debug("Connection unstable during fetch, retrying...")
+                await asyncio.sleep(1)
+                return None
+            except Exception as e:
+                logger.error(f"Unexpected error fetching message: {e}")
                 return None
 
         return fetch_one
