@@ -64,7 +64,7 @@ class MetadataRecord(BaseModel):
 
     # Radio settings
     frequency: int
-    interval: int
+    interval: float
     length: float
     gain: int
     sampling_rate: int

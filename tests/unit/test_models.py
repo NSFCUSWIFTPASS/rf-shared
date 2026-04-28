@@ -111,6 +111,35 @@ def test_metadata_record_file_io_with_pydantic(
     assert loaded_record == mock_metadata
 
 
+def test_metadata_record_accepts_subsecond_interval():
+    """``interval`` is float, so values like 0.25/0.5 (continuous-stream sensors) are valid.
+
+    iq-feeder traffic sends integer seconds (e.g. 10) which still validates as float.
+    """
+    record = MetadataRecord(
+        hostname="rfobs-01",
+        timestamp=datetime.datetime(
+            2026, 4, 27, 12, 0, 0, tzinfo=datetime.timezone.utc
+        ),
+        source_path=Path("dummy.sc16"),
+        serial="X1",
+        organization="Org",
+        gcs="0,0",
+        frequency=2_437_000_000,
+        interval=0.25,
+        length=0.5,
+        gain=40,
+        sampling_rate=25_000_000,
+        bit_depth=16,
+        group="g",
+        checksum="c",
+    )
+    assert record.interval == 0.25
+    # Round-trips through JSON unchanged.
+    parsed = MetadataRecord.model_validate_json(record.model_dump_json())
+    assert parsed.interval == 0.25
+
+
 def test_pydantic_raises_validation_error_on_incomplete_data():
     """
     Tests that Pydantic's validation correctly raises a ValidationError
