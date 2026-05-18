@@ -24,6 +24,20 @@ async def _default_closed_cb():
     logger.error("NATS connection closed permanently.")
 
 
+def _with_reconnect_defaults(connect_options: dict) -> dict:
+    """Merge caller options on top of our reconnect/callback defaults."""
+    options = {
+        "max_reconnect_attempts": -1,
+        "reconnect_time_wait": 2,
+        "error_cb": _default_error_cb,
+        "disconnected_cb": _default_disconnected_cb,
+        "reconnected_cb": _default_reconnected_cb,
+        "closed_cb": _default_closed_cb,
+    }
+    options.update(connect_options)
+    return options
+
+
 class NatsConsumer:
     def __init__(
         self,
@@ -47,19 +61,8 @@ class NatsConsumer:
         """
         Connects to NATs.
         """
-        options = {
-            "max_reconnect_attempts": -1,
-            "reconnect_time_wait": 2,
-            "error_cb": _default_error_cb,
-            "disconnected_cb": _default_disconnected_cb,
-            "reconnected_cb": _default_reconnected_cb,
-            "closed_cb": _default_closed_cb,
-        }
-
-        options.update(self._connect_options)
-
         try:
-            self.nc = await nats.connect(**options)
+            self.nc = await nats.connect(**_with_reconnect_defaults(self._connect_options))
             logger.info(f"Connected to NATS at {self._connect_options.get('servers')}")
 
         except Exception as e:
@@ -162,7 +165,7 @@ class NatsProducer:
     async def connect(self):
         """Connects to NATS and conditionally initializes JetStream."""
         try:
-            self.nc = await nats.connect(**self._connect_options)
+            self.nc = await nats.connect(**_with_reconnect_defaults(self._connect_options))
             logger.info(f"Connected to NATS at {self._connect_options.get('servers')}")
 
             if self.mode == "jetstream":
